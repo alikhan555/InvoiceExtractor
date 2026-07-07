@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: invoiceextractor
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d invoiceextractor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  aiengine:
+    build: ./AIEngine
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:key-k=here?}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+    ports:
+      - "8000:8000"
+
+  api:
+    build:
+      context: ./API
+      dockerfile: InvoiceExtractor.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=invoiceextractor;Username=postgres;Password=postgres"
+      AiEngine__BaseUrl: "http://aiengine:8000"
+      Storage__Root: "/data/storage"
+      AllowedOrigins__0: "http://localhost:5173"
+    ports:
+      - "5080:8080"
+    volumes:
+      - storage:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      aiengine:
+        condition: service_started
+
+  ui:
+    build: ./UI
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  storage:
